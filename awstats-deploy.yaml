@@ -1,0 +1,102 @@
+---
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata:
+  name: "awstats"
+  labels:
+    app: "awstats"
+    service: "webtools"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "awstats"
+  template:
+    metadata:
+      labels:
+        app: "awstats"
+    spec:
+      containers:
+        - name: "awstats"
+          image: iberejr/kub-awstats
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: logs
+              mountPath: /log
+            - name: config
+              mountPath: /etc/awstats
+      volumes:
+      - name: config
+        configMap:
+          name: awstats-conf
+      - name: logs
+        hostPath:
+          path: /opt/kubernetes/logs
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "awstats"
+  labels:
+    app: "awstats"
+    service: "webtools"
+spec:
+  selector:
+    app: "awstats"
+  ports:
+  - protocol: "TCP"
+    port: 80
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: collect-awstats-logs
+  labels:
+    app: "awstats"
+    service: "webtools"
+spec:
+  schedule: "*/10 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          containers:
+          - name: "awstats"
+            image: iberejr/kub-awstats
+            command:
+            - awstats_updateall.pl now
+            volumeMounts:
+              - name: logs
+                mountPath: /log
+              - name: config
+                mountPath: /etc/awstats
+          restartPolicy: OnFailure
+          volumes:
+          - name: config
+            configMap:
+              name: awstats-conf
+          - name: logs
+            hostPath:
+              path: /opt/kubernetes/logs
+---      
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: stats-tizio-ingress
+spec:
+  entryPoints:
+    - websecure
+  tls:
+    domains:
+    - main: "tizio.com.br"
+  routes:
+    - match: Host("stats.tizio.com.br")
+      kind: Rule
+      services:
+      - name: awstats
+        passHostHeader: true
+        port: 80
